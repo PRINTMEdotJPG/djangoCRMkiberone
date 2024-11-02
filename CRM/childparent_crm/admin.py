@@ -102,28 +102,22 @@ class ParentAdmin(admin.ModelAdmin):
 
 @admin.register(Child)
 class ChildAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'age', 'groups_list')
-    list_filter = ('age', 'groups')
-    search_fields = ('full_name', 'parent__full_name')
+    list_display = ('full_name', 'age', 'get_parent_link', 'groups_list')
+    list_filter = ('age',)
+    search_fields = ('full_name',)
 
-    # Поля с автодополнением (select2 виджет)
-    autocomplete_fields = ['parent']
-
-    # def parent_link(self, obj):
-    #     """
-    #     Создаёт кликабельную ссылку на родителя
-    #     reverse() генерирует URL для редактирования родителя
-    #     format_html() безопасно вставляет HTML в админку
-    #     """
-    #     url = reverse('admin:myapp_parent_change', args=[obj.parent.id])
-    #     return format_html('<a href="{}">{}</a>', url, obj.parent.full_name)
-    # parent_link.short_description = 'Родитель'
+    def get_parent_link(self, obj):
+        if obj.parent:
+            url = reverse('admin:childparent_crm_parent_change', args=[obj.parent.id])
+            return format_html('<a href="{}">{}</a>', url, obj.parent.full_name)
+        return "-"
+    get_parent_link.short_description = 'Родитель'
 
     def groups_list(self, obj):
         """
         Возвращает список групп, в которых состоит ребёнок
         """
-        return ", ".join([group.name for group in obj.groups.all()])
+        return ", ".join([f"{group.group_type} {group.day_of_week} в {group.time_start}" for group in obj.groups.all()])
     groups_list.short_description = 'Группы'
 
 @admin.register(Group)
