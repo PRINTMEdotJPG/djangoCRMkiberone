@@ -44,20 +44,25 @@ class Child(models.Model):
         verbose_name = 'Ребенок'
         verbose_name_plural = 'Дети'
 
+# models.py
+
+# models.py
+
 class Group(models.Model):
-    """Модель для учебных групп"""
-    type = models.ForeignKey(GroupType, on_delete=models.PROTECT)
+    id = models.AutoField(primary_key=True)  # Используем стандартное поле id
+    group_type = models.CharField(max_length=100, verbose_name='Тип группы', default="-")
     day_of_week = models.CharField(max_length=20, verbose_name='День недели')
     time_start = models.TimeField(verbose_name='Время начала')
     time_end = models.TimeField(verbose_name='Время окончания')
-    students = models.ManyToManyField(Child, related_name='groups', blank=True)
-
-    def __str__(self):
-        return f"{self.type} группа - {self.day_of_week} {self.time_start}"
+    students = models.ManyToManyField('Child', blank=True, related_name='groups')
 
     class Meta:
         verbose_name = 'Группа'
         verbose_name_plural = 'Группы'
+        db_table = 'childparent_crm_group'
+
+    def __str__(self):
+        return f"Группа {self.id} ({self.group_type})"
 
 class Payment(models.Model):
     """Модель для платежей"""
