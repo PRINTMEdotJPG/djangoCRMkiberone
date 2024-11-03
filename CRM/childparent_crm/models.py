@@ -1,5 +1,8 @@
 # models.py
 from django.db import models
+from django.utils import timezone
+from django.contrib.auth.models import User
+from datetime import datetime, timedelta
 
 class GroupType(models.Model):
     """Модель для типов групп (младшая/средняя/старшая)"""
@@ -11,6 +14,21 @@ class GroupType(models.Model):
     class Meta:
         verbose_name = 'Тип группы'
         verbose_name_plural = 'Типы групп'
+
+class ParentComment(models.Model):
+    parent = models.ForeignKey('Parent', on_delete=models.CASCADE, related_name='comments')
+    text = models.TextField('Комментарий')
+    created_at = models.DateTimeField('Дата создания', default=timezone.now)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='Менеджер')
+
+    class Meta:
+        verbose_name = 'Комментарий к родителю'
+        verbose_name_plural = 'Комментарии к родителям'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Менеджер {self.created_by} в {self.created_at.strftime("%d.%m.%Y %H:%M")}'
+
 
 class Parent(models.Model):
     """Модель для хранения информации о родителях"""
@@ -53,13 +71,23 @@ class Group(models.Model):
     group_type = models.CharField(max_length=100, verbose_name='Тип группы', default="-")
     day_of_week = models.CharField(max_length=20, verbose_name='День недели')
     time_start = models.TimeField(verbose_name='Время начала')
-    time_end = models.TimeField(verbose_name='Время окончания')
+    time_end = models.TimeField(verbose_name='Время окончания', blank=True)
     students = models.ManyToManyField('Child', blank=True, related_name='groups')
 
     class Meta:
         verbose_name = 'Группа'
         verbose_name_plural = 'Группы'
         db_table = 'childparent_crm_group'
+
+    def save(self, *args, **kwargs):
+        if self.time_start and not self.time_end:
+            # Объединяем текущую дату с временем начала
+            datetime_start = datetime.combine(datetime.today(), self.time_start)
+            # Прибавляем 2 часа
+            datetime_end = datetime_start + timedelta(hours=2)
+            # Устанавливаем время окончания
+            self.time_end = datetime_end.time()
+        super(Group, self).save(*args, **kwargs)
 
     def __str__(self):
         return f"Группа {self.id} ({self.group_type})"

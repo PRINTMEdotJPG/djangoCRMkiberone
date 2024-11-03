@@ -2,7 +2,20 @@ from django.contrib import admin
 from django.utils.html import format_html  # Для безопасного HTML в админке
 from django.urls import reverse  # Для построения URL в админке
 from django.db.models import Count, Sum  # Для агрегации (подсчёта) данных
-from .models import Parent, Child, Group, GroupType, Payment, TrialRequest
+from .models import Parent, Child, Group, GroupType, Payment, TrialRequest, ParentComment
+from .forms import ParentCommentInlineForm
+
+
+class ParentCommentInline(admin.StackedInline):
+    model = ParentComment
+    form = ParentCommentInlineForm
+    extra = 1
+    fields = ('text',)
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
 @admin.register(Parent)  # Декоратор для регистрации модели в админке
 class ParentAdmin(admin.ModelAdmin):
@@ -16,7 +29,8 @@ class ParentAdmin(admin.ModelAdmin):
         'children_count', # метод, который мы определим ниже
         'total_payments', # метод, который мы определим ниже
         'is_active',     # поле из модели
-        'created_at'     # поле из модели
+        'created_at',     # поле из модели
+        'last_comment' # кастомный метод, позволяющий отображать комментарии менеджеров
     )
 
     # list_filter добавляет фильтры справа от списка
@@ -62,7 +76,7 @@ class ParentAdmin(admin.ModelAdmin):
         readonly_fields = ('payment_date',)
 
     # Подключаем инлайны к родительской модели
-    inlines = [ChildInline, PaymentInline]
+    inlines = [ChildInline, PaymentInline, ParentCommentInline]
 
     # Метод для подсчёта количества детей
     def children_count(self, obj):
@@ -99,6 +113,23 @@ class ParentAdmin(admin.ModelAdmin):
         queryset.update(is_active=True)
         self.message_user(request, f"Выбранные родители активированы")
     activate_parents.short_description = "Активировать"
+
+    # Отображение комментария
+    def last_comment(self, obj):
+        latest_comment = obj.comments.first()
+        if latest_comment:
+            return f'{latest_comment.text[:50]}... ({latest_comment.created_by}, {latest_comment.created_at.strftime("%d.%m.%Y")})'
+        return '-'
+
+    last_comment.short_description = 'Последний комментарий'
+
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if isinstance(instance, ParentComment) and not instance.created_by:
+                instance.created_by = request.user
+            instance.save()
+        formset.save_m2m()
 
 @admin.register(Child)
 class ChildAdmin(admin.ModelAdmin):
