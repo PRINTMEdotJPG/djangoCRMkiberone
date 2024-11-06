@@ -2,7 +2,8 @@
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+
 
 class GroupType(models.Model):
     """Модель для типов групп (младшая/средняя/старшая)"""
@@ -37,6 +38,7 @@ class Parent(models.Model):
     email = models.EmailField(blank=True, null=True, verbose_name='Email')
     location = models.CharField(max_length=100, verbose_name='Город')
     district = models.CharField(max_length=100, verbose_name='Район')
+    subscription_amount = models.IntegerField(default=6900, blank=False, verbose_name="Стоимость абонемента")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
     # Если клиент ушёл по какой угодно причине, он становится "неактивным" (архивированным)
     is_active = models.BooleanField(default=True, verbose_name='Активный клиент')
@@ -52,8 +54,30 @@ class Child(models.Model):
     """Модель для хранения информации о детях"""
     parent = models.ForeignKey(Parent, on_delete=models.CASCADE, related_name='children')
     full_name = models.CharField(max_length=100, verbose_name='ФИО')
-    age = models.IntegerField(verbose_name='Возраст')
+    birth_date = models.DateField(blank=True, verbose_name="Дата рождения: ", null=True)
+    age = models.CharField(max_length=3, verbose_name="Возраст", blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    # Методы для получения локации и района от родителя
+    @property
+    def location(self):
+        return self.parent.location if self.parent else None
+
+    @property
+    def district(self):
+        return self.parent.district if self.parent else None
+
+    def calculate_age(self):
+        if self.birth_date:
+            today = date.today()
+            age = today.year - self.birth_date.year - (
+                        (today.month, today.day) < (self.birth_date.month, self.birth_date.day))
+            return str(age)
+        return ""
+
+    def save(self, *args, **kwargs):
+        self.age = self.calculate_age()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Ребенок: {self.full_name}, ФИО родителя: ({self.parent.full_name})"
@@ -91,6 +115,105 @@ class Group(models.Model):
 
     def __str__(self):
         return f"Группа {self.id} ({self.group_type})"
+
+class Absence(models.Model):
+    """Модель пропусков занятий"""
+    STATUS_CHOICES = [
+        ('missed', 'Пропущено'),
+        ('scheduled', 'Запланирована отработка'),
+        ('completed', 'Отработано'),
+    ]
+
+    child = models.ForeignKey(
+        'Child',  # Предполагается что есть модель Child
+        on_delete=models.CASCADE,
+        verbose_name='Ученик'
+    )
+    date = models.DateField(verbose_name='Дата пропуска')
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='missed',
+        verbose_name='Статус'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+
+    class Meta:
+        verbose_name = 'Пропуск'
+        verbose_name_plural = 'Пропуски'
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.child} - {self.date}"
+
+
+class MakeupClass(models.Model):
+    """Модель отработок"""
+    TIME_SLOTS = [
+        ('9:00', '9:00'),
+        ('10:00', '10:00'),
+        ('11:00', '11:00'),
+        ('12:00', '12:00'),
+        ('13:00', '13:00'),
+        ('14:00', '14:00'),
+        ('15:00', '15:00'),
+        ('16:00', '16:00'),
+        ('17:00', '17:00'),
+        ('18:00', '18:00'),
+    ]
+
+    STATUS_CHOICES = [
+        ('scheduled', 'Запланирована'),
+        ('completed', 'Выполнена'),
+        ('cancelled', 'Отменена'),
+    ]
+
+    absence = models.OneToOneField(
+        Absence,
+        on_delete=models.CASCADE,
+        verbose_name='Пропуск'
+    )
+    makeup_date = models.DateField(verbose_name='Дата отработки')
+    time_slot = models.CharField(
+        max_length=10,
+        choices=TIME_SLOTS,
+        verbose_name='Время'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='scheduled',
+        verbose_name='Статус'
+    )
+    group = models.ForeignKey(
+        'Group',  # Предполагается что есть модель Group
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name='Группа'
+    )
+    reason = models.TextField(
+        blank=True,
+        verbose_name='Причина пропуска'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Создано'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Обновлено'
+    )
+
+    class Meta:
+        verbose_name = 'Отработка'
+        verbose_name_plural = 'Отработки'
+        ordering = ['makeup_date', 'time_slot']
+
+    def __str__(self):
+        return f"Отработка {self.absence.child} - {self.makeup_date}"
 
 class Payment(models.Model):
     """Модель для платежей"""

@@ -1,8 +1,8 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.utils.html import format_html  # Для безопасного HTML в админке
 from django.urls import reverse  # Для построения URL в админке
 from django.db.models import Count, Sum  # Для агрегации (подсчёта) данных
-from .models import Parent, Child, Group, GroupType, Payment, TrialRequest, ParentComment
+from .models import Parent, Child, Group, GroupType, Payment, TrialRequest, ParentComment, MakeupClass, Absence
 from .forms import ParentCommentInlineForm
 
 
@@ -27,6 +27,7 @@ class ParentAdmin(admin.ModelAdmin):
         'email',         # поле из модели
         'district',      # поле из модели
         'children_count', # метод, который мы определим ниже
+        'subscription_amount',
         'total_payments', # метод, который мы определим ниже
         'is_active',     # поле из модели
         'created_at',     # поле из модели
@@ -53,7 +54,7 @@ class ParentAdmin(admin.ModelAdmin):
             'fields': ('full_name', 'phone_number', 'email')  # Поля в разделе
         }),
         ('Адрес', {
-            'fields': ('location', 'district')
+            'fields': ('location', 'district', 'subscription_amount')
         }),
         ('Статус', {
             'fields': ('is_active', 'created_at')
@@ -66,12 +67,12 @@ class ParentAdmin(admin.ModelAdmin):
     # Вложенные классы для отображения связанных моделей
     class ChildInline(admin.TabularInline):
         model = Child  # Связанная модель
-        extra = 1     # Количество пустых форм для добавления
+        extra = 0     # Количество пустых форм для добавления
         show_change_link = True  # Добавляет ссылку на редактирование записи
 
     class PaymentInline(admin.TabularInline):
         model = Payment
-        extra = 0  # Не показывать пустые формы
+        extra = 1 # Не показывать пустые формы
         can_delete = False  # Запретить удаление через инлайн
         readonly_fields = ('payment_date',)
 
@@ -133,9 +134,24 @@ class ParentAdmin(admin.ModelAdmin):
 
 @admin.register(Child)
 class ChildAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'age', 'get_parent_link', 'groups_list')
-    list_filter = ('age',)
-    search_fields = ('full_name',)
+    list_display = ('full_name', 'age', 'birth_date', 'location', 'get_district', 'get_parent_link', 'groups_list')
+    list_filter = ('age', 'birth_date', 'parent__district', )
+    search_fields = ('full_name', 'birth_date',)
+
+    readonly_fields = ('age', 'location', 'get_district', )
+
+
+    def location(self, obj):
+        return obj.parent.location
+    location.short_description = 'Локация'
+
+    def get_district(self, obj):
+        return obj.parent.district if obj.parent else None
+    get_district.short_description = 'Район'
+
+    def get_queryset(self, request):
+        # Используем только 'parent', если district это поле в модели Parent
+        return super().get_queryset(request).select_related('parent')
 
     def get_parent_link(self, obj):
         if obj.parent:
@@ -169,6 +185,164 @@ class GroupAdmin(admin.ModelAdmin):
     def students_count(self, obj):
         return obj.students.count()
     students_count.short_description = 'Количество учеников'
+
+@admin.register(MakeupClass)
+class MakeupClassAdmin(admin.ModelAdmin):
+    # Отображаемые поля в списке
+    list_display = ['get_child_name', 'makeup_date', 'time_slot', 'status', 'group', 'reason', 'slot_capacity']
+
+    # Фильтры справа
+    list_filter = ['status', 'makeup_date', 'group']
+
+    # Поля для поиска
+    search_fields = ['absence__child__full_name']
+
+    # Поля только для чтения
+    readonly_fields = ['created_at', 'updated_at']
+
+    def get_child_name(self, obj):
+        """Получение имени ученика"""
+        return obj.absence.child.full_name
+    get_child_name.short_description = 'Ученик'
+
+    def slot_capacity(self, obj):
+        """Отображение заполненности слота"""
+        total = MakeupClass.objects.filter(
+            makeup_date=obj.makeup_date,
+            time_slot=obj.time_slot,
+            status='scheduled'  # Считаем только запланированные
+        ).count()
+
+        # Определяем цвет индикатора
+        if total >= 4:
+            color = 'red'
+        elif total >= 2:
+            color = 'orange'
+        else:
+            color = 'green'
+
+        return format_html(
+            '<span style="color: {};">{}/4</span>',
+            color,
+            total
+        )
+    slot_capacity.short_description = 'Заполненность слота'
+
+    def save_model(self, request, obj, form, change):
+        """Обработка сохранения модели"""
+        # Проверяем количество учеников в слоте
+        total_in_slot = MakeupClass.objects.filter(
+            makeup_date=obj.makeup_date,
+            time_slot=obj.time_slot,
+            status='scheduled'
+        ).count()
+
+        # Если это новая запись и слот заполнен
+        if not change and total_in_slot >= 4:
+            messages.error(request, 'Этот слот уже заполнен (максимум 4 ученика)')
+            return
+
+        super().save_model(request, obj, form, change)
+
+        # Обновляем статус пропуска
+        absence = obj.absence
+        if obj.status == 'completed':
+            absence.status = 'completed'
+        elif obj.status == 'scheduled':
+            absence.status = 'scheduled'
+        absence.save()
+
+@admin.register(Absence)
+class AbsenceAdmin(admin.ModelAdmin):
+    list_display = ['child', 'date', 'status', 'get_makeup_info', 'created_at']
+    list_filter = ['status', 'date']
+    search_fields = ['child__full_name']
+    readonly_fields = ['created_at']
+    actions = ['mark_as_completed']
+
+    def get_makeup_info(self, obj):
+        """Получение информации об отработке"""
+        try:
+            makeup = MakeupClass.objects.get(absence=obj)
+            status_colors = {
+                'scheduled': 'blue',
+                'completed': 'green',
+                'cancelled': 'red'
+            }
+            return format_html(
+                '<span style="color: {};">Отработка: {} в {} ({})</span>',
+                status_colors.get(makeup.status, 'black'),
+                makeup.makeup_date,
+                makeup.time_slot,
+                makeup.get_status_display()
+            )
+        except MakeupClass.DoesNotExist:
+            return format_html(
+                '<span style="color: grey;">Не назначена</span>'
+            )
+    get_makeup_info.short_description = 'Информация об отработке'
+
+    def mark_as_completed(self, request, queryset):
+        """Массовая отметка отработок как выполненных"""
+        updated = 0
+        for absence in queryset:
+            try:
+                makeup = MakeupClass.objects.get(absence=absence)
+                if makeup.status == 'scheduled':
+                    makeup.status = 'completed'
+                    makeup.save()
+                    absence.status = 'completed'
+                    absence.save()
+                    updated += 1
+            except MakeupClass.DoesNotExist:
+                continue
+
+        if updated:
+            self.message_user(
+                request,
+                f'Успешно отмечено выполненными: {updated} отработок'
+            )
+        else:
+            self.message_user(
+                request,
+                'Не найдено запланированных отработок для отметки',
+                level=messages.WARNING
+            )
+    mark_as_completed.short_description = 'Отметить как выполненные'
+
+    def save_model(self, request, obj, form, change):
+        """Обработка сохранения пропуска"""
+        # Если статус меняется на completed
+        if 'status' in form.changed_data and obj.status == 'completed':
+            try:
+                makeup = MakeupClass.objects.get(absence=obj)
+                makeup.status = 'completed'
+                makeup.save()
+            except MakeupClass.DoesNotExist:
+                pass
+
+        super().save_model(request, obj, form, change)
+
+    def has_delete_permission(self, request, obj=None):
+        """Запрет удаления пропусков с назначенными отработками"""
+        if obj:
+            try:
+                MakeupClass.objects.get(absence=obj)
+                return False
+            except MakeupClass.DoesNotExist:
+                pass
+        return super().has_delete_permission(request, obj)
+
+    def get_readonly_fields(self, request, obj=None):
+        """Делаем поля только для чтения если есть отработка"""
+        if obj:
+            try:
+                MakeupClass.objects.get(absence=obj)
+                return self.readonly_fields + ['status']
+            except MakeupClass.DoesNotExist:
+                pass
+        return self.readonly_fields
+
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
