@@ -1,9 +1,14 @@
 from django.contrib import admin, messages
+from django.urls import path
 from django.utils.html import format_html  # Для безопасного HTML в админке
 from django.urls import reverse  # Для построения URL в админке
 from django.db.models import Count, Sum  # Для агрегации (подсчёта) данных
 from .models import Parent, Child, Group, GroupType, Payment, TrialRequest, ParentComment, MakeupClass, Absence
 from .forms import ParentCommentInlineForm
+from django.shortcuts import render, redirect
+from datetime import datetime
+
+
 
 
 class ParentCommentInline(admin.StackedInline):
@@ -175,7 +180,8 @@ class GroupAdmin(admin.ModelAdmin):
         'day_of_week',
         'time_start',
         'time_end',
-        'students_count'
+        'students_count',
+        'mark_absences',
     )
 
     list_filter = ('group_type', 'day_of_week')
@@ -185,6 +191,53 @@ class GroupAdmin(admin.ModelAdmin):
     def students_count(self, obj):
         return obj.students.count()
     students_count.short_description = 'Количество учеников'
+
+    def mark_absences(self, obj):
+        """Кнопка для отметки пропусков"""
+        url = reverse('admin:mark-group-absences', args=[obj.pk])
+        return format_html('<a class="button" href="{}">Отметить пропуски</a>', url)
+
+    mark_absences.short_description = 'Отметить пропуски'
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                '<int:group_id>/mark-absences/',
+                self.admin_site.admin_view(self.mark_absences_view),
+                name='mark-group-absences'
+            ),
+        ]
+        return custom_urls + urls
+
+    def mark_absences_view(self, request, group_id):
+        group = Group.objects.get(id=group_id)
+        students = group.students.all()
+
+        if request.method == 'POST':
+            date = request.POST.get('date')
+            absent_students = request.POST.getlist('absent_students')
+
+            for student_id in absent_students:
+                student = Child.objects.get(id=student_id)
+                if not Absence.objects.filter(child=student, date=date).exists():
+                    Absence.objects.create(
+                        child=student,
+                        date=date,
+                        status='missed'
+                    )
+
+            messages.success(request, f'Пропуски для группы {group.id} успешно отмечены')
+            return redirect('..')
+
+        context = {
+            'title': f'Отметить пропуски - Группа {group.id} ({group.group_type})',
+            'group': group,
+            'students': students,
+            'opts': self.model._meta,
+            'today': datetime.now().date(),
+        }
+        return render(request, 'admin/mark_absences.html', context)
 
 @admin.register(MakeupClass)
 class MakeupClassAdmin(admin.ModelAdmin):

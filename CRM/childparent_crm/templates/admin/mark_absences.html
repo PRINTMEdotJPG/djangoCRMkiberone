@@ -1,0 +1,117 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block content %}
+<div class="module">
+    <h2>{{ title }}</h2>
+    <form method="post">
+        {% csrf_token %}
+
+        <div style="margin-bottom: 20px;">
+            <label for="date">Дата:</label>
+            <input type="date" name="date" id="date" value="{{ today|date:'Y-m-d' }}" required>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <h3>Отметьте отсутствующих учеников:</h3>
+            {% if students %}
+                {% for student in students %}
+                <div style="margin: 5px 0;">
+                    <label style="display: flex; align-items: center;">
+                        <input type="checkbox" name="absent_students" value="{{ student.id }}" style="margin-right: 10px;">
+                        {{ student.full_name }}
+                    </label>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>В данной группе нет учеников</p>
+            {% endif %}
+        </div>
+
+        <div class="info" style="margin-bottom: 20px;">
+            <p><strong>Информация о группе:</strong></p>
+            <p>Тип группы: {{ group.group_type }}</p>
+            <p>День недели: {{ group.day_of_week }}</p>
+            <p>Время занятия: {{ group.time_start }} - {{ group.time_end }}</p>
+        </div>
+
+        <div class="submit-row">
+            {% if students %}
+                <input type="submit" value="Сохранить" class="default">
+            {% endif %}
+            <a href="../" class="button" style="margin-left: 10px;">Назад к списку групп</a>
+        </div>
+    </form>
+</div>
+
+<style>
+    .module {
+        padding: 20px;
+        margin: 20px;
+        background: var(--body-bg);  /* Используем системную переменную фона */
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--body-fg);  /* Используем системную переменную цвета текста */
+    }
+    .submit-row {
+        margin-top: 20px;
+        padding: 10px;
+        display: flex;
+        justify-content: flex-start;
+        align-items: center;
+    }
+    .info {
+        background: var(--darkened-bg);  /* Используем системную переменную для фона блока */
+        padding: 15px;
+        border-radius: 4px;
+        color: var(--body-fg);
+    }
+    .info p {
+        margin: 5px 0;
+        color: var(--body-fg);
+    }
+    label {
+        cursor: pointer;
+        color: var(--body-fg);
+    }
+    label:hover {
+        background-color: var(--darkened-bg);
+    }
+    input[type="checkbox"] {
+        cursor: pointer;
+    }
+    input[type="date"] {
+        background: var(--body-bg);
+        color: var(--body-fg);
+        border: 1px solid var(--border-color);
+        padding: 5px;
+        border-radius: 4px;
+    }
+    .button {
+        display: inline-block;
+        padding: 10px 15px;
+        background: var(--primary);
+        color: var(--primary-fg);
+        border-radius: 4px;
+        text-decoration: none;
+    }
+    .button:hover {
+        background: var(--primary-darker);
+    }
+    h2, h3 {
+        color: var(--header-color);
+    }
+    input[type="submit"].default {
+        background: var(--primary);
+        color: var(--primary-fg);
+        border: none;
+        padding: 10px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    input[type="submit"].default:hover {
+        background: var(--primary-darker);
+    }
+</style>
+
+{% endblock %}

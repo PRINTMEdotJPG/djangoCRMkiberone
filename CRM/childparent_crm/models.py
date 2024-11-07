@@ -92,7 +92,7 @@ class Child(models.Model):
 
 class Group(models.Model):
     id = models.AutoField(primary_key=True)  # Используем стандартное поле id
-    group_type = models.CharField(max_length=100, verbose_name='Тип группы', default="-")
+    group_type = models.CharField(max_length=100, verbose_name='Тип группы', blank=True)
     day_of_week = models.CharField(max_length=20, verbose_name='День недели')
     time_start = models.TimeField(verbose_name='Время начала')
     time_end = models.TimeField(verbose_name='Время окончания', blank=True)
