@@ -225,8 +225,9 @@ class Payment(models.Model):
 
     parent = models.ForeignKey(Parent, on_delete=models.CASCADE, related_name='payments')
     amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Сумма')
-    payment_date = models.DateTimeField(auto_now_add=True, verbose_name='Дата платежа')
     payment_type = models.CharField(max_length=50, choices=PAYMENT_TYPES, verbose_name='Тип оплаты')
+    payment_date = models.DateField(default=timezone.now)  # Используйте default, если вы хотите установить начальное значение
+
 
     def __str__(self):
         return f"Платеж от {self.parent.full_name} на сумму {self.amount}"
@@ -234,6 +235,35 @@ class Payment(models.Model):
     class Meta:
         verbose_name = 'Платеж'
         verbose_name_plural = 'Платежи'
+
+class MonthlySubscription(models.Model):
+    parent = models.ForeignKey('Parent', on_delete=models.CASCADE)
+    month = models.DateField()  # Первый день месяца
+    amount_due = models.DecimalField(max_digits=10, decimal_places=2)  # Сумма к оплате
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # Оплаченная сумма
+    lessons_count = models.IntegerField()  # Количество занятий в месяце
+    payment_status = models.CharField(
+    max_length=20,
+    choices=[
+        ('UNPAID', 'Не оплачено'),
+        ('PARTIAL', 'Частично оплачено'),
+        ('PAID', 'Полностью оплачено')
+    ]
+)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now_add=True)
+
+    def get_payment_status(self):
+        if self.amount_paid == 0:
+            return 'UNPAID'
+        elif self.amount_paid < self.amount_due:
+            return 'PARTIAL'
+        return 'PAID'
+
+    @property
+    def remaining_amount(self):
+        return self.amount_due - self.amount_paid
+
 
 class TrialRequest(models.Model):
     """Модель для заявок на пробные занятия"""

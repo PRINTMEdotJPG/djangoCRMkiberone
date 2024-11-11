@@ -1,0 +1,14 @@
+<!-- templates/admin/parents/send_message.html -->
+{% extends "admin/base_site.html" %}  <!-- Берем за основу базовый шаблон админки -->
+
+{% block content %}
+    <h1>Отправка сообщения родителям</h1>
+    <p>Выбрано родителей: {{ parents_count }}</p>  <!-- Показываем, сколько родителей выбрано -->
+
+    <form method="post">
+        {% csrf_token %}  <!-- Защита от взлома -->
+        {{ form.as_p }}  <!-- Показываем нашу форму -->
+        <input type="submit" value="Отправить сообщение" />
+        <a href="{{ back_url }}" class="button cancel-link">Отмена</a>
+    </form>
+{% endblock %}

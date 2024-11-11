@@ -4,9 +4,10 @@ from django.utils.html import format_html  # Для безопасного HTML 
 from django.urls import reverse  # Для построения URL в админке
 from django.db.models import Count, Sum  # Для агрегации (подсчёта) данных
 from .models import Parent, Child, Group, GroupType, Payment, TrialRequest, ParentComment, MakeupClass, Absence
-from .forms import ParentCommentInlineForm
+from .forms import ParentCommentInlineForm, WhatsAppMessageForm
 from django.shortcuts import render, redirect
 from datetime import datetime
+from .services import WhatsAppService
 
 
 
@@ -51,7 +52,7 @@ class ParentAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'total_payments')
 
     # Действия, которые можно применить к выбранным записям
-    actions = ['archive_parents', 'activate_parents']
+    actions = ['archive_parents', 'activate_parents', 'send_whatsapp_message']
 
     # fieldsets группирует поля в разделы при редактировании записи
     fieldsets = (
@@ -136,6 +137,84 @@ class ParentAdmin(admin.ModelAdmin):
                 instance.created_by = request.user
             instance.save()
         formset.save_m2m()
+
+    # WHATSAPP отправка сообщений
+
+    def send_whatsapp_message(self, request, queryset):
+        # Сохраняем выбранных родителей в сессию
+        selected = queryset.values_list('id', flat=True)
+        request.session['selected_parents'] = list(selected)
+        return redirect('admin:send-whatsapp-message')
+
+    send_whatsapp_message.short_description = "Отправить WhatsApp сообщение"  # Название кнопки в админке
+
+    def get_urls(self):
+        # Добавляем новый URL для страницы отправки сообщения
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                'send-message/',
+                self.admin_site.admin_view(self.send_message_view),
+                name='send-whatsapp-message'
+            ),
+        ]
+        return custom_urls + urls
+
+    def send_message_view(self, request):
+        # Проверяем, есть ли выбранные родители
+        if not request.session.get('selected_parents'):
+            messages.error(request, 'Не выбраны родители для отправки сообщения')
+            return redirect('admin:childparent_crm_parent_changelist')
+
+        # Получаем список родителей из базы данных
+        parents = Parent.objects.filter(id__in=request.session['selected_parents'])
+
+        if request.method == 'POST':  # Если пришли данные из формы
+            form = WhatsAppMessageForm(request.POST)
+            if form.is_valid():  # Проверяем правильность данных
+                whatsapp = WhatsAppService()
+                message = form.cleaned_data['message']  # Получаем текст сообщения из формы
+
+                success_count = 0  # Счетчик успешных отправок
+                error_count = 0  # Счетчик ошибок
+
+                # Отправляем сообщение каждому родителю
+                for parent in parents:
+                    if whatsapp.send_message(parent.phone_number, message):
+                        success_count += 1
+                    else:
+                        error_count += 1
+
+                # Показываем сообщения об успехе или ошибках
+                if success_count:
+                    messages.success(
+                        request,
+                        f'Успешно отправлено {success_count} сообщений'
+                    )
+                if error_count:
+                    messages.error(
+                        request,
+                        f'Ошибка при отправке {error_count} сообщений'
+                    )
+
+                # Очищаем сессию и возвращаемся к списку родителей
+                del request.session['selected_parents']
+                return redirect('admin:childparent_crm_parent_changelist')
+        else:
+            # Если страница открыта впервые, показываем пустую форму
+            form = WhatsAppMessageForm()
+
+        # Подготавливаем данные для шаблона
+        context = {
+            'form': form,
+            'parents_count': parents.count(),
+            'back_url': 'admin:childparent_crm_parent_changelist',
+            'title': 'Отправка WhatsApp сообщения',
+            'opts': self.model._meta,  # Мета-информация о модели для админки
+        }
+
+        # Показываем страницу с формой
+        return render(request, 'admin/parents/send_message.html', context)
 
 @admin.register(Child)
 class ChildAdmin(admin.ModelAdmin):
@@ -399,7 +478,7 @@ class AbsenceAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ('parent', 'amount', 'payment_type', 'payment_date')
+    list_display = ('parent', 'amount', 'payment_type', 'payment_date',)
     list_filter = ('payment_type', 'payment_date')
     search_fields = ('parent__full_name',)  # Поиск по имени родителя
     readonly_fields = ('payment_date',)

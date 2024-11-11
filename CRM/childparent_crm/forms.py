@@ -16,3 +16,12 @@ class ParentCommentInlineForm(forms.ModelForm):
                'cols': 60,  # Ширина текстового поля
            }),
        }
+
+from django import forms
+class WhatsAppMessageForm(forms.Form):
+    message = forms.CharField(
+        widget=forms.Textarea(
+            attrs={'rows': 4, 'cols': 50}), # Создаем поле для ввода текста
+            label='Сообщение', # Подпись над полем
+            initial='Здравствуйте!' # Начальный текст в поле
+            )
